@@ -2,9 +2,7 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
-	//"github.com/consensys/gnark/backend/witness"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 	"os"
 	"path/filepath"
@@ -45,30 +43,19 @@ func CircuitCmd() *cobra.Command {
 	return cmd
 }
 
-//func rollupCircuitCmd() *cobra.Command {
-//	cmd := &cobra.Command{
-//		Use:   "rollup",
-//		Short: "create rollup circuit pk vk file",
-//		Run:   rollupCircuit,
-//	}
-//	rollupCircuitFlags(cmd)
-//	return cmd
-//}
-
 func rollupCircuitFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("path", "p", ".", "path to place file, defult .")
 	cmd.Flags().StringP("filename", "f", "zk", "file name, default zk")
-	cmd.Flags().Uint32P("raw", "r", 0, "create raw or compressed point option, default compressed")
+	//cmd.Flags().Uint32P("raw", "r", 0, "create raw or compressed point option, default compressed")
 	//cmd.MarkFlagRequired("filename")
 }
 
 func rollupCircuit(cmd *cobra.Command, args []string) {
-	//rpcLaddr, _ := cmd.Flags().GetString("rpc_laddr")
 	path, _ := cmd.Flags().GetString("path")
 	fileName, _ := cmd.Flags().GetString("filename")
-	raw, _ := cmd.Flags().GetUint32("raw")
+	//raw, _ := cmd.Flags().GetUint32("raw")
 	var circuit CubicCircuit
-	_, err := createZkKeyFile(&circuit, path, fileName, raw)
+	_, err := createZkKeyFile(&circuit, path, fileName)
 	if err != nil {
 		fmt.Println("err", err)
 		return
@@ -91,18 +78,18 @@ func ProofCmd() *cobra.Command {
 func proofFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("path", "p", ".", "path to place file, defult .")
 	cmd.Flags().StringP("filename", "f", "zk", "file name, default zk")
-	//cmd.Flags().Uint32P("witness", "w", 3, "witness input")
-	//cmd.Flags().Uint32P("public","p", 35, "public input")
+	cmd.Flags().Uint32P("witness", "w", 3, "witness input")
+	cmd.Flags().Uint32P("public", "i", 35, "public input")
 	//cmd.MarkFlagRequired("filename")
 }
 
 func proof(cmd *cobra.Command, args []string) {
 	path, _ := cmd.Flags().GetString("path")
 	filename, _ := cmd.Flags().GetString("filename")
-	//witness, _ := cmd.Flags().GetUint32("witness")
-	//public, _ := cmd.Flags().GetUint32("public")
+	witness, _ := cmd.Flags().GetUint32("witness")
+	public, _ := cmd.Flags().GetUint32("public")
 
-	_, err := createProof(path, filename)
+	_, err := createProof(path, filename, witness, public)
 	if err != nil {
 		fmt.Println("err", err)
 		return
@@ -140,7 +127,7 @@ func verify(cmd *cobra.Command, args []string) {
 
 }
 
-func createZkKeyFile(circuit frontend.Circuit, path, fileName string, raw uint32) (*string, error) {
+func createZkKeyFile(circuit frontend.Circuit, path, fileName string) (*string, error) {
 	//var circuit prove.ZkRollupCircuit
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit)
 	if err != nil {
@@ -157,18 +144,21 @@ func createZkKeyFile(circuit frontend.Circuit, path, fileName string, raw uint32
 	}
 
 	//使用WriteTo,可以缩小一半vk大小，但是偶尔会有读取时候可能没有解压缩，证明会失败的情况
-	if raw != 0 {
-		pk.WriteRawTo(&bufPk)
-		vk.WriteRawTo(&bufVk)
-	} else {
-		pk.WriteTo(&bufPk)
-		vk.WriteTo(&bufVk)
-	}
+	pk.WriteTo(&bufPk)
+	vk.WriteTo(&bufVk)
+
+	//if raw != 0 {
+	//	pk.WriteRawTo(&bufPk)
+	//	vk.WriteRawTo(&bufVk)
+	//} else {
+	//	pk.WriteTo(&bufPk)
+	//	vk.WriteTo(&bufVk)
+	//}
 
 	pkfile := filepath.Join(path, pkName)
 	fPk, err := os.Create(pkfile)
 	if err != nil {
-		return nil, errors.Wrapf(err, "create file")
+		return nil, errors.Wrapf(err, "create pk file")
 	}
 	//fPk.WriteString(hex.EncodeToString(bufPk.Bytes()))
 	fPk.Write(bufPk.Bytes())
@@ -177,35 +167,16 @@ func createZkKeyFile(circuit frontend.Circuit, path, fileName string, raw uint32
 	file := filepath.Join(path, vkName)
 	fVk, err := os.Create(file)
 	if err != nil {
-		return nil, errors.Wrapf(err, "create file")
+		return nil, errors.Wrapf(err, "create vk file")
 	}
 	//fVk.WriteString(hex.EncodeToString(bufVk.Bytes()))
 	fVk.Write(bufVk.Bytes())
 	fVk.Close()
 
-	//assignment := CubicCircuit{X: 3, Y: 35}
-	//witness, _ := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
-	//
-	//// groth16: Prove & Verify
-	//proof, _ := groth16.Prove(ccs, pk, witness)
-	//var buffproof bytes.Buffer
-	//_,err = proof.WriteTo(&buffproof)
-	//if err != nil {
-	//  return nil, errors.Wrapf(err, "write to buff")
-	//}
-	//
-	//var nproof groth16_bn254.Proof
-	//nproof.ReadFrom(&buffproof)
-	//
-	//assignment = CubicCircuit{X: 0, Y: 35}
-	//witness, _ = frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
-	//publicWitness, _ := witness.Public()
-	//groth16.Verify(&nproof, vk, publicWitness)
-
 	return nil, nil
 }
 
-func createProof(path, fileName string) (*string, error) {
+func createProof(path, fileName string, witnessVal, pubVal uint32) (*string, error) {
 	var circuit CubicCircuit
 	ccs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, &circuit)
 	if err != nil {
@@ -215,7 +186,7 @@ func createProof(path, fileName string) (*string, error) {
 	file := filepath.Join(path, fileName+".pk")
 	bufPk, err := readFile(file)
 	if err != nil {
-		return nil, errors.Wrapf(err, "pkfile")
+		return nil, errors.Wrapf(err, "read pkfile")
 	}
 	var pk groth16_bn254.ProvingKey
 	pk.ReadFrom(bufPk)
@@ -223,12 +194,12 @@ func createProof(path, fileName string) (*string, error) {
 	file = filepath.Join(path, fileName+".vk")
 	bufVk, err := readFile(file)
 	if err != nil {
-		return nil, errors.Wrapf(err, "vkfile")
+		return nil, errors.Wrapf(err, "read vkfile")
 	}
 	var vk groth16_bn254.VerifyingKey
 	vk.ReadFrom(bufVk)
 
-	assignment := CubicCircuit{X: 3, Y: 35}
+	assignment := CubicCircuit{X: witnessVal, Y: pubVal}
 	witness, _ := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
 
 	// groth16: Prove & Verify
@@ -242,17 +213,10 @@ func createProof(path, fileName string) (*string, error) {
 	file = filepath.Join(path, "proof")
 	fProof, err := os.Create(file)
 	if err != nil {
-		return nil, errors.Wrapf(err, "create file")
+		return nil, errors.Wrapf(err, "create proof")
 	}
 	defer fProof.Close()
 	fProof.Write(bufProof.Bytes())
-	var nproof groth16_bn254.Proof
-	nproof.ReadFrom(&bufProof)
-	//
-	assignment = CubicCircuit{X: 0, Y: 35}
-	witness, _ = frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
-	publicWitness, _ := witness.Public()
-	groth16.Verify(&nproof, &vk, publicWitness)
 
 	return nil, nil
 }
@@ -261,7 +225,7 @@ func verifyProof(path, fileName string, pubVal uint32) (*string, error) {
 	file := filepath.Join(path, fileName+".vk")
 	bufVk, err := readFile(file)
 	if err != nil {
-		return nil, errors.Wrapf(err, "vkfile")
+		return nil, errors.Wrapf(err, "read vkfile")
 	}
 	var vk groth16_bn254.VerifyingKey
 	vk.ReadFrom(bufVk)
@@ -269,17 +233,19 @@ func verifyProof(path, fileName string, pubVal uint32) (*string, error) {
 	file = filepath.Join(path, "proof")
 	bufProof, err := readFile(file)
 	if err != nil {
-		return nil, errors.Wrapf(err, "vkfile")
+		return nil, errors.Wrapf(err, "read proof file")
 	}
 
 	var proof groth16_bn254.Proof
 	proof.ReadFrom(bufProof)
 
-	assignment := CubicCircuit{X: 0, Y: 35}
+	assignment := CubicCircuit{X: 0, Y: pubVal}
 	witness, _ := frontend.NewWitness(&assignment, ecc.BN254.ScalarField())
 	publicWitness, _ := witness.Public()
-	groth16.Verify(&proof, &vk, publicWitness)
-
+	err = groth16.Verify(&proof, &vk, publicWitness)
+	if err != nil {
+		return nil, errors.Wrapf(err, "verify")
+	}
 	return nil, nil
 }
 
@@ -296,53 +262,3 @@ func readFile(file string) (*bytes.Buffer, error) {
 	buff.ReadFrom(f)
 	return &buff, nil
 }
-
-func GetByteBuff(input string) (*bytes.Buffer, error) {
-	var buffInput bytes.Buffer
-	res, err := hex.DecodeString(input)
-	if err != nil {
-		return nil, errors.Wrapf(err, "getByteBuff to %s", input)
-	}
-	_, err = buffInput.Write(res)
-	if err != nil {
-		return nil, errors.Wrapf(err, "write buff %s", input)
-	}
-	return &buffInput, nil
-
-}
-
-//
-//func Verify(verifyKeyStr, proofStr, pubInputStr string) (bool, error) {
-//	vkBuf, err := mixTy.GetByteBuff(verifyKeyStr)
-//	if err != nil {
-//		return false, errors.Wrapf(err, "zkVerify.vk.GetByteBuff")
-//	}
-//	vk := groth16.NewVerifyingKey(ecc.BN254)
-//	if _, err := vk.ReadFrom(vkBuf); err != nil {
-//		return false, errors.Wrapf(err, "zkVerify.read.vk=%s", verifyKeyStr[:10])
-//	}
-//
-//	// load proof
-//	proofBuf, err := mixTy.GetByteBuff(proofStr)
-//	if err != nil {
-//		return false, errors.Wrapf(err, "zkVerify.get.proof")
-//	}
-//	proof := groth16.NewProof(ecc.BN254)
-//	if _, err = proof.ReadFrom(proofBuf); err != nil {
-//		return false, errors.Wrapf(err, "zkVerify.read.proof=%s", proofStr[:10])
-//	}
-//
-//	// decode pub input hex string
-//	pubBuf, err := mixTy.GetByteBuff(pubInputStr)
-//	if err != nil {
-//		return false, errors.Wrapf(err, "zkVerify.pub.GetByteBuff")
-//	}
-//
-//	// verify proof
-//	//start := time.Now()
-//	err = groth16.ReadAndVerify(proof, vk, pubBuf)
-//	if err != nil {
-//		return false, errors.Wrapf(err, "zkVerify.verify")
-//	}
-//	return true, nil
-//}
